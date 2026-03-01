@@ -37,12 +37,18 @@ class MarketInput(BaseModel):
 
 
 class RateChartGodInput(BaseModel):
-    single_digit_1: Optional[int] = None
-    jodi_digit_1: Optional[int] = None
+    left_digit_1: Optional[int]
+    left_digit_x: Optional[int]
+    left_digit_2: Optional[int]
 
-    single_digit_2: Optional[int] = None
-    jodi_digit_2: Optional[int] = None
+    right_digit_1: Optional[int]
+    right_digit_x: Optional[int]
+    right_digit_2: Optional[int]
 
+    jodi_digit_1: Optional[int]
+    jodi_digit_x: Optional[int]
+    jodi_digit_2: Optional[int]
+    
 class UserBidModel(BaseModel):
     market_id: str
     game_type: str         
@@ -53,16 +59,20 @@ class UserBidModel(BaseModel):
 # RATE CHART ROUTES
 # -----------------------------
 
-@router.get("/rate/")
+@router.get("/rate")
 def get_rate_chart():
     chart = RateChartGod.objects().first()
     if not chart:
         return {"message": "No rate chart found"}
-    return chart.to_mongo().to_dict()
+
+    data = chart.to_mongo().to_dict()
+    data["_id"] = str(data["_id"])
+
+    return data
 
 
 @router.post("/rate/")
-def create_or_update_rate_chart(data: RateChartGodInput, admin=Depends(require_admin)):
+def create_or_update_rate_chart(data: RateChartGodInput):
     chart = RateChartGod.objects().first()
     if not chart:
         chart = RateChartGod()
@@ -320,7 +330,8 @@ def declare_result(payload: ResultDeclare, admin=Depends(require_admin)):
         raise HTTPException(400, "Digit must be 1 or 2 digits")
 
     result = ResultGod.objects(
-        market_id=payload.game_id, date=payload.date
+        market_id=payload.game_id,
+        date=payload.date
     ).first()
 
     if not result:
@@ -337,6 +348,7 @@ def declare_result(payload: ResultDeclare, admin=Depends(require_admin)):
     elif session == "close":
         result.close_digit = digit[-1]
 
+        # agar 2 digit diya ho aur open pehle se empty ho
         if result.open_digit == "-" and len(digit) == 2:
             result.open_digit = digit[0]
 
@@ -345,16 +357,16 @@ def declare_result(payload: ResultDeclare, admin=Depends(require_admin)):
 
     result.save()
 
+    # 🔥 settlement after save
     settle_results(payload.game_id, result)
 
-    return {"message": "Result declared successfully"}
-
-
+    return {"message": "Result declared & settled successfully"}
 # -----------------------------
 # SETTLEMENT LOGIC
 # -----------------------------
+import uuid
 
-def settle_results(market_id: str, result_obj: ResultGod):
+def settle_results(market_id: str, result_obj):
 
     chart = RateChartGod.objects().first()
     if not chart:
@@ -366,36 +378,57 @@ def settle_results(market_id: str, result_obj: ResultGod):
     bids = BidGod.objects(market_id=market_id)
 
     for bid in bids:
+
+        # 🔒 Skip if already paid
+        already_paid = Transaction.objects(
+            bid_id=str(bid.id),
+            payment_method="Win"
+        ).first()
+
+        if already_paid:
+            continue
+
         win = False
 
-        if bid.game_type == "single":
-            if bid.session == "open" and bid.open_digit == open_digit:
-                win = True
-            if bid.session == "close" and bid.close_digit == close_digit:
+        # ---------------- OPEN ----------------
+        if bid.game_type == "open":
+            if open_digit != "-" and bid.digit == open_digit:
                 win = True
 
+        # ---------------- CLOSE ----------------
+        elif bid.game_type == "close":
+            if close_digit != "-" and bid.digit == close_digit:
+                win = True
+
+        # ---------------- JODI ----------------
+        elif bid.game_type == "jodi":
+            if open_digit != "-" and close_digit != "-":
+                if bid.digit == open_digit + close_digit:
+                    win = True
+
+        if not win:
+            continue
+
+        # ---------------- PAYOUT ----------------
         if bid.game_type == "jodi":
-            if bid.open_digit + bid.close_digit == open_digit + close_digit:
-                win = True
+            rate = chart.jodi_digit_2
+        else:
+            rate = chart.single_digit_2
 
-        if win:
-            rate = chart.jodi_digit_2 if bid.game_type == "jodi" else chart.single_digit_2
-            amount = bid.points * rate
+        amount = bid.points * rate
 
-            wallet = Wallet.objects(user_id=bid.user_id).first()
-            if wallet:
-                wallet.update(inc__balance=amount)
+        wallet = Wallet.objects(user_id=str(bid.user_id)).first()
+        if wallet:
+            wallet.update(inc__balance=amount)
 
-                Transaction(
-                    tx_id=str(uuid.uuid4()),
-                    user_id=bid.user_id,
-                    amount=amount,
-                    payment_method="Win",
-                    status="Approved"
-                ).save()
-
-
-# -----------------------------
+            Transaction(
+                tx_id=str(uuid.uuid4()),
+                user_id=str(bid.user_id),
+                bid_id=str(bid.id),
+                amount=amount,
+                payment_method="Win",
+                status="Approved"
+            ).save()
 # RESULT LIST
 # -----------------------------
 
@@ -577,84 +610,42 @@ def winning_report(
     return {"count": len(reports), "data": reports}
 
 
-@router.get("/win-history", )
+@router.get("/win-history")
 def get_win_history(user=Depends(get_current_user)):
-    """
-    Returns all WINNING bids of the logged-in user.
-    """
 
-    chart = RateChartGod.objects().first()
-    if not chart:
-        raise HTTPException(400, "Rate chart missing")
-
-    # Fetch ALL results
-    results = ResultGod.objects()
+    win_transactions = Transaction.objects(
+        user_id=str(user.id),
+        payment_method="Win"
+    ).order_by("-created_at")
 
     win_list = []
 
-    for r in results:
-        # find all bids in that market for that date (full day range)
-        start = datetime.combine(r.date.date(), datetime.min.time())
-        end = datetime.combine(r.date.date(), datetime.max.time())
+    for tx in win_transactions:
 
-        user_bids = BidGod.objects(
-            user_id=str(user.id),
-            market_id=r.market_id,
-            created_at__gte=start,
-            created_at__lte=end
-        )
+        bid = BidGod.objects(id=tx.bid_id).first()
+        if not bid:
+            continue
 
-        for bid in user_bids:
-            win = False
+        market = MarketGod.objects(id=bid.market_id).first()
 
-            # SINGLE WIN
-            if bid.game_type == "single":
-                if bid.session == "open" and bid.open_digit == r.open_digit:
-                    win = True
-                if bid.session == "close" and bid.close_digit == r.close_digit:
-                    win = True
-
-            # JODI WIN
-            if bid.game_type == "jodi":
-                if bid.open_digit + bid.close_digit == r.open_digit + r.close_digit:
-                    win = True
-
-            if win:
-                # Calculate winning amount
-                rate = (
-                    chart.jodi_digit_2 
-                    if bid.game_type == "jodi" 
-                    else chart.single_digit_2
-                )
-                win_amount = bid.points * rate
-
-                # Fetch market name
-                market = MarketGod.objects(id=r.market_id).first()
-                market_name = market.name if market else "-"
-
-                win_list.append({
-                    "market_id": r.market_id,
-                    "market_name": market_name,
-                    "date": r.date,
-                    "game_type": bid.game_type,
-                    "session": bid.session,
-                    "open_digit": bid.open_digit,
-                    "close_digit": bid.close_digit,
-                    "points": bid.points,
-                    "win_amount": win_amount,
-                    "result_open": r.open_digit,
-                    "result_close": r.close_digit,
-                })
-
-    # Sort latest first
-    win_list.sort(key=lambda x: x["date"], reverse=True)
+        win_list.append({
+            "market_id": bid.market_id,
+            "market_name": market.name if market else "-",
+            "date": bid.created_at,
+            "game_type": bid.game_type,
+            "session": bid.session,
+            "open_digit": bid.open_digit,
+            "close_digit": bid.close_digit,
+            "points": bid.points,
+            "win_amount": tx.amount,
+            "tx_id": tx.tx_id
+        })
 
     return {
         "message": "Winning history fetched",
         "count": len(win_list),
         "data": win_list
     }
-
 
 class UserBidRequest(BaseModel):
     market_id: str
@@ -932,7 +923,7 @@ def get_all_bids_admin(
 def get_user_bids(
     market_id: str,
     date: str = Query(...),
-    # user=Depends(get_current_user)
+    user=Depends(get_current_user)
 ):
     """
     Return today's bids for logged-in user (1 bid per day rule)

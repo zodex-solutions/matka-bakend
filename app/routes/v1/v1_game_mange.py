@@ -26,6 +26,8 @@ class MarketInput(BaseModel):
     marketType: str 
 
 class RateChartInput(BaseModel):
+
+    # -------- TYPE 1 --------
     single_digit_1: Optional[int] = None
     jodi_digit_1: Optional[int] = None
     single_pana_1: Optional[int] = None
@@ -40,6 +42,7 @@ class RateChartInput(BaseModel):
     starline_double_pana_1: Optional[int] = None
     starline_tripple_pana_1: Optional[int] = None
 
+    # -------- TYPE 2 --------
     single_digit_2: Optional[int] = None
     jodi_digit_2: Optional[int] = None
     single_pana_2: Optional[int] = None
@@ -53,6 +56,21 @@ class RateChartInput(BaseModel):
     starline_single_pana_2: Optional[int] = None
     starline_double_pana_2: Optional[int] = None
     starline_tripple_pana_2: Optional[int] = None
+
+    # -------- TYPE X --------
+    single_digit_x: Optional[int] = None
+    jodi_digit_x: Optional[int] = None
+    single_pana_x: Optional[int] = None
+    double_pana_x: Optional[int] = None
+    tripple_pana_x: Optional[int] = None
+    half_sangam_x: Optional[int] = None
+    full_sangam_x: Optional[int] = None
+    left_digit_x: Optional[int] = None
+    right_digit_x: Optional[int] = None
+    starline_single_digit_x: Optional[int] = None
+    starline_single_pana_x: Optional[int] = None
+    starline_double_pana_x: Optional[int] = None
+    starline_tripple_pana_x: Optional[int] = None
 
 
 router = APIRouter(prefix="/api/admin", tags=["Game Management"])

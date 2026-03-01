@@ -42,13 +42,14 @@ class Draw(Document):
 class Transaction(Document):
     tx_id = StringField(required=True, unique=True)
     user_id = StringField(required=True)
+    bid_id = StringField(required=True)
     amount = FloatField(required=True)
     payment_method = StringField(required=True)
     status = StringField(default="pending")  # PENDING, SUCCESS, FAILED
     created_at = DateTimeField(default=datetime.datetime.utcnow)
     confirmed_at = DateTimeField()
     screenshot = StringField()
-    expires_at = DateTimeField(required=True)
+    expires_at = DateTimeField(required=False)
 
 class Wallet(Document):
     user_id = StringField(required=True, unique=True)
@@ -103,6 +104,8 @@ class Bid(Document):
     digit = StringField(required=True)
     points = IntField(required=True)
     created_at = DateTimeField(default=datetime.datetime.utcnow)
+    bid_date = DateTimeField(default=datetime.datetime.utcnow)
+    is_settled = BooleanField(default=False)
 
 
 class Result(Document):
@@ -234,6 +237,21 @@ class RateChart(Document):
     starline_single_pana_2 = IntField(default=1500)
     starline_double_pana_2 = IntField(default=3000)
     starline_tripple_pana_2 = IntField(default=7000)
+
+    # Values for Type X
+    single_digit_x = IntField(default=0)
+    jodi_digit_x = IntField(default=0)
+    single_pana_x = IntField(default=0)
+    double_pana_x = IntField(default=0)
+    tripple_pana_x = IntField(default=0)
+    half_sangam_x = IntField(default=0)
+    full_sangam_x = IntField(default=0)
+    left_digit_x = IntField(default=0)
+    right_digit_x = IntField(default=0)
+    starline_single_digit_x = IntField(default=0)
+    starline_single_pana_x = IntField(default=0)
+    starline_double_pana_x = IntField(default=0)
+    starline_tripple_pana_x = IntField(default=0)
 
 class DevloperAccess(Document):
     value = BooleanField(default=True)

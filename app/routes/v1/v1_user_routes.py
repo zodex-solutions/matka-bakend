@@ -4,7 +4,7 @@ import uuid
 from bson import ObjectId
 from app.utils import hash_password, verify_password
 from ...models import Market, RateChart, Result, User, Transaction, Wallet,Withdrawal,Bid
-from datetime import datetime
+from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends,Form
 from pydantic import BaseModel
 from ...auth import get_current_user, require_admin
@@ -102,7 +102,9 @@ def add_money(amount: float, user_id: str, user=Depends(require_admin)):
         user_id=str(user_id),
         amount=amount,
         payment_method="Deposit",
-        status="SUCCESS"
+        status="SUCCESS",
+        
+        
     ).save()
     user.update(inc__balance=amount)
     return {"message": f"Added {amount} to user {user.username} successfully"}
@@ -128,7 +130,7 @@ def deduct_money(amount: float, user_id: str, user=Depends(require_admin)):
     Transaction(
         tx_id=str(uuid.uuid4()),
         user_id=str(wallet.user_id),
-        amount=-wallet.balance,
+        amount=-amount,
         payment_method="Withdrawal",
         status="SUCCESS"
     ).save()

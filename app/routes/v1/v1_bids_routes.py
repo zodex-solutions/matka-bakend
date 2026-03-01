@@ -121,64 +121,82 @@ def place_bid(
     user=Depends(get_current_user)
 ):
 
-    # Wallet Check
+    # ---------------- WALLET CHECK ----------------
     wallet = Wallet.objects(user_id=str(user.id)).first()
     if not wallet:
-        raise HTTPException(400, "Wallet not found")
+        raise HTTPException(status_code=400, detail="Wallet not found")
 
     if wallet.balance < points:
-        raise HTTPException(400, "Insufficient Balance")
+        raise HTTPException(status_code=400, detail="Insufficient Balance")
 
-    # Market Check
+    # ---------------- MARKET CHECK ----------------
     market = Market.objects(id=market_id).first()
     if not market:
-        raise HTTPException(404, "Invalid Market ID")
+        raise HTTPException(status_code=404, detail="Invalid Market ID")
 
-    # -------------------------
-    # TIME PARSING FIX
-    # -------------------------
+    # ---------------- TIME PARSE ----------------
     def parse_time(t):
         return datetime.strptime(t, "%I:%M %p").time()
 
-    now = datetime.now().time()
+    now_dt = datetime.now()
+    today = now_dt.date()
+
     open_time = parse_time(market.open_time)
     close_time = parse_time(market.close_time)
 
-    # -------------------------
-    # TIME LOGIC START
-    # -------------------------
-    # Case 1: Before open_time → only OPEN allowed
-    if now < open_time:
+    open_dt = datetime.combine(today, open_time)
+    close_dt = datetime.combine(today, close_time)
+
+    # -------- HANDLE OVERNIGHT MARKET --------
+    # Example: 10 PM to 2 AM
+    if close_dt <= open_dt:
+        close_dt += timedelta(days=1)
+
+    # If after midnight but market is overnight
+    if now_dt < open_dt and close_dt.day != open_dt.day:
+        open_dt -= timedelta(days=1)
+
+    # ---------------- TIME LOGIC ----------------
+
+    # Before open time → only OPEN allowed
+    if now_dt < open_dt:
         if session != "open":
-            raise HTTPException(400, "You can place only OPEN session before market open time")
+            raise HTTPException(
+                status_code=400,
+                detail="Only OPEN session allowed before open time"
+            )
 
-    # Case 2: Between open and close → only CLOSE allowed
-    elif open_time <= now <= close_time:
+    # Between open & close → only CLOSE allowed
+    elif open_dt <= now_dt <= close_dt:
         if session != "close":
-            raise HTTPException(400, "You can place only CLOSE session between open and close time")
+            raise HTTPException(
+                status_code=400,
+                detail="Only CLOSE session allowed after open time"
+            )
 
-    # Case 3: After close_time → market closed
+    # After close → market closed
     else:
-        raise HTTPException(400, "Market closed, cannot place bid now")
+        raise HTTPException(
+            status_code=400,
+            detail="Market Closed"
+        )
 
-    # -------------------------
-    # TIME LOGIC END
-    # -------------------------
+    # ---------------- VALIDATION ----------------
 
-    # Validate Game Type
     if game_type not in VALID_GAMES:
-        raise HTTPException(400, "Invalid Game Type")
+        raise HTTPException(status_code=400, detail="Invalid Game Type")
 
-    # Validate Session
     if session not in ["open", "close"]:
-        raise HTTPException(400, "Invalid Session")
+        raise HTTPException(status_code=400, detail="Invalid Session")
 
-    # -------------------------
-    # Sangam Logic
-    # -------------------------
+    # ---------------- SANGAM LOGIC ----------------
+
     if game_type == "full_sangam":
         if not open_panna or not close_panna:
-            raise HTTPException(400, "Full Sangam requires open_panna & close_panna")
+            raise HTTPException(
+                status_code=400,
+                detail="Full Sangam requires open_panna & close_panna"
+            )
         digit = f"{open_panna}-{close_panna}"
 
     elif game_type == "half_sangam":
@@ -187,21 +205,27 @@ def place_bid(
         elif close_panna and open_digit:
             digit = f"{close_panna}-{open_digit}"
         else:
-            raise HTTPException(400, "Half Sangam requires panna+digit combination")
+            raise HTTPException(
+                status_code=400,
+                detail="Half Sangam requires panna + digit combination"
+            )
 
     elif digit is None:
-        raise HTTPException(400, "Digit is required for this game type")
+        raise HTTPException(
+            status_code=400,
+            detail="Digit is required for this game type"
+        )
 
     # Digit validation
     validate_digit(game_type, digit)
 
-    # Wallet Deduction
+    # ---------------- WALLET DEDUCT ----------------
     wallet.update(
         dec__balance=points,
         set__updated_at=datetime.utcnow()
     )
 
-    # Save Bid
+    # ---------------- SAVE BID ----------------
     bid = Bid(
         user_id=str(user.id),
         market_id=market_id,
@@ -222,9 +246,7 @@ def place_bid(
             "points": bid.points,
             "created_at": bid.created_at
         }
-    }
-
-# ------------------------------
+    }# ------------------------------
 # MY BIDS
 # ------------------------------
 
