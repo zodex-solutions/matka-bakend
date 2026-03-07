@@ -40,16 +40,26 @@ class Draw(Document):
     settled = BooleanField(default=False)
 
 class Transaction(Document):
+
     tx_id = StringField(required=True, unique=True)
+
     user_id = StringField(required=True)
-    bid_id = StringField(required=True)
+
+    razorpay_order_id = StringField()
+
+    razorpay_payment_id = StringField()
+
     amount = FloatField(required=True)
-    payment_method = StringField(required=True)
-    status = StringField(default="pending")  # PENDING, SUCCESS, FAILED
+
+    status = StringField(default="PENDING")
+
     created_at = DateTimeField(default=datetime.datetime.utcnow)
+
     confirmed_at = DateTimeField()
-    screenshot = StringField()
-    expires_at = DateTimeField(required=False)
+
+    meta = {
+        "collection": "transactions"
+    }
 
 class Wallet(Document):
     user_id = StringField(required=True, unique=True)
